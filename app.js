@@ -1,34 +1,46 @@
 const express = require("express");
 const app = express();
 const mongoose = require("mongoose");
-app.use(express.json());
 const cors = require("cors");
-app.use(cors());
 const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const nodemailer = require("nodemailer");
+
+app.use(express.json());
+app.use(cors());
 app.set("view engine", "ejs");
 app.use(express.urlencoded({ extended: false }));
 require('dotenv').config();
-const jwt = require("jsonwebtoken");
-
-var nodemailer = require("nodemailer");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const MONGO_URL = process.env.MONGO_URL;
 
+// Importa rutas
+const productRoutes = require("./routes/productRoutes");
+const userRoutes = require("./routes/userRoutes");
+const userDetailsRoutes = require("./routes/userDetailsRoutes");
+
+// Usa las rutas
+app.use("/products", productRoutes);
+app.use("/users", userRoutes);
+app.use("/user-details", userDetailsRoutes);
+
 mongoose
-  .connect(mongoUrl, {
+  .connect(MONGO_URL, {
     useNewUrlParser: true,
+    useUnifiedTopology: true, // Agregado para evitar advertencias de deprecación
   })
   .then(() => {
     console.log("Connected to database");
   })
-  .catch((e) => console.log(e));
+  .catch((e) => console.error(e));
 
 require("./userDetails");
 require("./imageDetails");
 
 const User = mongoose.model("UserInfo");
 const Images = mongoose.model("ImageDetails");
+
 app.post("/register", async (req, res) => {
   const { fname, lname, email, password, userType } = req.body;
 
@@ -46,9 +58,9 @@ app.post("/register", async (req, res) => {
       password: encryptedPassword,
       userType,
     });
-    res.send({ status: "ok" });
+    res.json({ status: "ok" });
   } catch (error) {
-    res.send({ status: "error" });
+    res.json({ status: "error" });
   }
 });
 
@@ -64,38 +76,32 @@ app.post("/login-user", async (req, res) => {
       expiresIn: "15m",
     });
 
-    if (res.status(201)) {
-      return res.json({ status: "ok", data: token });
-    } else {
-      return res.json({ error: "error" });
-    }
+    res.json({ status: "ok", data: token });
+  } else {
+    res.json({ status: "error", error: "Invalid Password" });
   }
-  res.json({ status: "error", error: "InvAlid Password" });
 });
 
 app.post("/userData", async (req, res) => {
   const { token } = req.body;
   try {
-    const user = jwt.verify(token, JWT_SECRET, (err, res) => {
+    const user = jwt.verify(token, JWT_SECRET, (err, decoded) => {
       if (err) {
         return "token expired";
       }
-      return res;
+      return decoded;
     });
-    console.log(user);
-    if (user == "token expired") {
-      return res.send({ status: "error", data: "token expired" });
+    
+    if (user === "token expired") {
+      return res.json({ status: "error", data: "token expired" });
     }
 
     const useremail = user.email;
-    User.findOne({ email: useremail })
-      .then((data) => {
-        res.send({ status: "ok", data: data });
-      })
-      .catch((error) => {
-        res.send({ status: "error", data: error });
-      });
-  } catch (error) { }
+    const userData = await User.findOne({ email: useremail });
+    res.json({ status: "ok", data: userData });
+  } catch (error) {
+    res.json({ status: "error", data: error.message });
+  }
 });
 
 app.listen(5000, () => {
